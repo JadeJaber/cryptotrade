@@ -1,0 +1,10 @@
+#!/bin/bash
+
+curl -k -H "X-MBX-APIKEY: NqUfTEf7U9khF8MBcNHGuDIYkPOsvA3zeQMZFjuVlyvf8Wv7kKDnJDqVprqskH1D" -X GET "https://api.binance.com/api/v1/time"
+timestampe=$(date +%s000)
+echo $timestampe
+request="timestamp=$timestampe"
+signature=$(echo $(echo -n $request | openssl dgst -sha256 -hmac "sOn4fEo1CupIDH8FQHklHPFzCbw87tmaWXGwP91nns1hCNJYcQy9CPloKicSbHYJ") | awk -F ' ' '{print $2}')
+curl -k -H "X-MBX-APIKEY: NqUfTEf7U9khF8MBcNHGuDIYkPOsvA3zeQMZFjuVlyvf8Wv7kKDnJDqVprqskH1D" -X GET "https://api.binance.com/api/v3/account?$request&signature=$signature"
+
+

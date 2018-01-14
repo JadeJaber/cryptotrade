@@ -1,0 +1,25 @@
+import hmac
+import hashlib
+import requests
+import time
+
+
+def query(endpoint: object, options: object) -> object:
+    timestamp = int(time.time()*1000)
+    request = 'timestamp=' + str(timestamp) + options
+    secret_key = b'sOn4fEo1CupIDH8FQHklHPFzCbw87tmaWXGwP91nns1hCNJYcQy9CPloKicSbHYJ'
+    signature = hmac.new(secret_key, request.encode(), hashlib.sha256).hexdigest()
+    url = 'https://api.binance.com/api/v3/' + endpoint + '?' + request + '&signature=' + signature
+    headers = {'X-MBX-APIKEY': 'NqUfTEf7U9khF8MBcNHGuDIYkPOsvA3zeQMZFjuVlyvf8Wv7kKDnJDqVprqskH1D'}
+    r = requests.get(url, headers=headers)
+    return r.content
+
+
+def get_all_orders():
+    query('allOrders', '')
+
+if __name__ == '__main__':
+    result_1 = query('account', '')
+    print(result_1)
+    result_2 = get_all_orders()
+    print(result_2)
