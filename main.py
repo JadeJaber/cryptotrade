@@ -6,12 +6,11 @@ import numpy as np
 import math
 
 
+
 config = configparser.ConfigParser()
 config.read("./password.dat")
 api_key = config['configuration']['api_key']
 api_secret = config['configuration']['api_secret']
-
-
 client = Client(api_key, api_secret)
 
 
@@ -79,75 +78,97 @@ def generate_sell_part(qty, rate):
     return qty * rate / 100
 
 
-def brain_strategy(pair, quote_c, base_c_balance):
-    if quote_c is 'ETH':
-        min_quote_sell_price = 0.02
+def brain_strategy(price_strat_1, base_qty, benef, mean_price, step):
+    price_strategy = []
+    part_strategy = []
+    price_strategy.append(price_strat_1)
+    part_strategy.append(get_part_strat(base_qty, benef, mean_price, price_strat_1))
+    if part_strategy[0] > 100:
+        return 0, 0
     else:
-        exit(quote_c + ' currency is not controlled yet. Chaka chaka')
-    current_pair_price = client.get_symbol_ticker(symbol=pair)['price']
-    my_pair_value = float(current_pair_price) * base_c_balance
-    print(type(my_pair_value))
-    number_of_parts = math.floor(my_pair_value / min_quote_sell_price)
-    print(number_of_parts)
-    price_strategy = 0
-    part_strategy = 0
-    return price_strategy, part_strategy
+        j = 0
+        while get_part_strat(base_qty, benef, mean_price, price_strategy[j] * step) + sum(part_strategy) < 100:
+            price_strategy.append(price_strategy[j] * step)
+            part_strategy.append(get_part_strat(base_qty, benef, mean_price, price_strategy[j+1]))
+            j = j+1
+        if j == 1:
+            part_strategy[0] = 100
+        else:
+            print(j)
+            print(part_strategy)
+            part_strategy[j-1] = 100 - sum(part_strategy[:j-1])
+    return price_strategy[:j], part_strategy[:j]
 
 
-
-    price_strategy = [5, 10, 15, 20, 30]
-    part_strategy = [10, 15, 20, 25, 30]
-
-
-def generate_sells(base_c, pair, mean_price):
+def generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy):
     """
 
     :param asset:
     :param mean_price:
     :return: sells to create
     """
-    # Get base_c balance to  dispatch in several sells
-    asset_bal = client.get_asset_balance(base_c)
-
-
     sells = []
-    for i in range(0, len(price_strategie)):
+    for i in range(0, len(price_strategy)):
         sells.append([pair,
-                      generate_sell_price(mean_price, price_strategie[i]),
-                      generate_sell_part(float(asset_bal['free']), part_strategie[i])
+                      generate_sell_price(mean_price, price_strategy[i]),
+                      generate_sell_part(base_qty, part_strategy[i])
                       ])
     return sells
 
 
-## TODO
-# Il faut gerer le nombre de virgule pour la quantite de vente. Mais trouver une autre methode que l'arrondi.
-# Gérer un montant minimum car parfois il est trop petit
-# Gerer la derniere part pour prendre le reste dans le cas ou l'on "arrondi" la qte de vente.
+def get_mean_high_price(pair):
+    start_date = "1 month ago UTC"
+    end_date = "now UTC"
+    historical_klines = client.get_historical_klines(symbol=pair,
+                                                     interval=client.KLINE_INTERVAL_1DAY,
+                                                     start_str=start_date,
+                                                     end_str=end_date)
+    top_prices = [float(historical_kline[2]) for historical_kline in historical_klines]
+    return sum(top_prices)/len(top_prices)
+
+
+def get_part_strat(base_qty, benef, mean_price, price_strat):
+    sell_price = mean_price + (mean_price * price_strat / 100)
+    return benef / (sell_price - mean_price) * 100 / base_qty
+
+# todo : voir pour l'arrondi au lors de la creation de l'ordre. L'PI n'aime pas avoir trop de décimales
+# Le problème c'est que ca depend de l'asset aussi
+# voir pourquoi je n'ai aucune vente lorsque je le benef à 0.2
+
 if __name__ == '__main__':
-    exit
-    base_c= 'REQ'
+    base_c = 'NEO'
     quote_c = 'ETH'
     pair = base_c + quote_c
+    base_qty = float(client.get_asset_balance(base_c)['free'])
     mean_price = get_mean_price(pair)
-    sells = generate_sells(base_c, pair, mean_price)
-    print(sells)
-    for i in sells:
-        print(i[0],i[2],round(i[1], 8))
-        client.create_test_order(symbol=i[0],
-                                 side='SELL',
-                                 type='LIMIT_MAKER',
-                                 quantity=i[2],
-                                 price=round(i[1], 8)
-                                 )
-
+    mean_high_price = get_mean_high_price(pair)
+    diff_mean_price_vs_mean_high_price = round((mean_high_price - mean_price)/mean_price * 100, 0)
+    price_strategy, part_strategy = brain_strategy(price_strat_1=diff_mean_price_vs_mean_high_price,
+                                                   base_qty=base_qty,
+                                                   benef=0.2,
+                                                   mean_price=mean_price,
+                                                   step=1.5)
+    print(base_qty, mean_price, mean_high_price, diff_mean_price_vs_mean_high_price)
+    print(price_strategy, part_strategy)
+    if price_strategy != 0:
+        sells = generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy)
+        print(sells)
+        for i in sells:
+            print(i[0], i[2], i[1])
+            client.create_test_order(symbol=i[0],
+                                     side='SELL',
+                                     type='LIMIT_MAKER',
+                                     quantity=round(i[2], 2),
+                                     price=round(i[1], 4)
+                                     )
+    else:
+        print("No interesting sells to create")
 
 
 
 # TODO :
 # annuler tous les ordres
-# boucler sur la liste des sells et creer les sells associés
 # boucler automatiquement sur toutes les devises
-# voir comment éviter les sells trop petits.
 
 
 
