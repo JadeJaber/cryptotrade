@@ -17,6 +17,9 @@ client = Client(api_key, api_secret)
 # result = requests.get(url)
 # print(result.content.decode())
 
+decs_part = {'NEOETH': 2, 'BATETH': 0}
+decs_price = {'NEOETH': 6}
+
 
 def get_mean_price(pair):
     """
@@ -59,12 +62,14 @@ def brain_strategy(price_strat_1, base_qty, benef, mean_price, step):
         j = 0
         while get_part_strat(base_qty, benef, mean_price, price_strategy[j] * step) + sum(part_strategy) < 100:
             price_strategy.append(price_strategy[j] * step)
-            part_strategy.append(get_part_strat(base_qty, benef, mean_price, price_strategy[j+1]))
+            part_strategy.append(round(get_part_strat(base_qty, benef, mean_price, price_strategy[j+1]), 0))
             j = j+1
+            print(price_strategy,part_strategy)
         if j == 1:
             part_strategy[0] = 100
         else:
             part_strategy[j] = 100 - sum(part_strategy[:j])
+            print(price_strategy, part_strategy)
     return price_strategy, part_strategy
 
 
@@ -80,9 +85,11 @@ def generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy):
     """
     sells = []
     for i in range(0, len(price_strategy)):
+        dec_part = 8 if (pair not in decs_part) else decs_part[pair]
+        dec_price = 8 if (pair not in decs_price) else decs_price[pair]
         sells.append([pair,
-                      generate_sell_price(mean_price, price_strategy[i]),
-                      generate_sell_part(base_qty, part_strategy[i])
+                      round(generate_sell_price(mean_price, price_strategy[i]), dec_price),
+                      round(generate_sell_part(base_qty, part_strategy[i]), dec_part)
                       ])
     return sells
 
@@ -100,7 +107,7 @@ def get_mean_high_price(pair):
 
 def get_part_strat(base_qty, benef, mean_price, price_strat):
     sell_price = mean_price + (mean_price * price_strat / 100)
-    return benef / (sell_price - mean_price) * 100 / base_qty
+    return round(benef / (sell_price - mean_price) * 100 / base_qty, 0)
 
 
 def sell_pair(base_c, quote_c, benef, step):
@@ -109,7 +116,7 @@ def sell_pair(base_c, quote_c, benef, step):
     mean_price = get_mean_price(pair)
     mean_high_price = get_mean_high_price(pair)
     if mean_high_price > mean_price:
-        diff_mean_price_vs_mean_high_price = round((mean_high_price - mean_price)/mean_price * 100, 0)
+        diff_mean_price_vs_mean_high_price = (mean_high_price - mean_price)/mean_price * 100
         price_strategy, part_strategy = brain_strategy(price_strat_1=diff_mean_price_vs_mean_high_price,
                                                        base_qty=base_qty,
                                                        benef=benef,
@@ -122,8 +129,8 @@ def sell_pair(base_c, quote_c, benef, step):
                 client.create_test_order(symbol=i[0],
                                          side='SELL',
                                          type='LIMIT_MAKER',
-                                         quantity=round(i[2], 2),
-                                         price=round(i[1], 4)
+                                         quantity=i[2],
+                                         price=round(i[1], 8)
                                          )
         else:
             print("No interesting sells to create for pair : ", pair)
@@ -132,20 +139,29 @@ def sell_pair(base_c, quote_c, benef, step):
 
 
 if __name__ == '__main__':
-    benef = 0.1
+    min_balance_value = 0.1
     step = 1.2
+    # get non zero assets and remove NA assets
     my_account = client.get_account()['balances']
+    my_account = [asset for asset in my_account if
+                  (float(asset['free']) + float(asset['locked']) > 0) &
+                  (asset['asset'] not in ('ETH', 'GAS', 'ETF','NEO'))
+                  ]
     for asset in my_account:
         symbol = asset['asset']+'ETH'
         try:
-            if float(client.get_ticker(symbol=symbol)['lastPrice']) * float(asset['free']) >= benef:
+            # setting benef according to total asset value and braining only assets whose value is > min_value
+            balance_value = float(client.get_ticker(symbol=symbol)['lastPrice']) * float(asset['free'])
+            benef = 0.1 if balance_value <= 1 else 0.2
+            if balance_value >= min_balance_value:
+                print('Braining : ' + asset['asset'])
                 sell_pair(asset['asset'], 'ETH', benef, step)
         except Exception as e:
-            print(e)
+            print(asset['asset'], e)
 
 
 # TODO : annuler tous les ordres d'une paire dès lors qu'il y a eu un achat ou une vente depuis l'open order le plus ancien.
-# TODO : voir pour l'arrondi au lors de la creation de l'ordre. L'API n'aime pas avoir trop de décimales => Le problème c'est que ca depend de l'asset aussi
+# TODO : il faur revoir al maniere dont on caclule le min benef car avec le BAT par exemple la repartition se fait mal.... le dernier part_strat a 34% du solde
 
 
 
