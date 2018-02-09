@@ -17,7 +17,7 @@ client = Client(api_key, api_secret)
 # result = requests.get(url)
 # print(result.content.decode())
 
-decs_part = {'NEOETH': 2, 'BATETH': 0}
+decs_part = {'NEOETH': 2, 'BATETH': 0, 'VENETH': 0}
 decs_price = {'NEOETH': 6}
 
 
@@ -52,6 +52,15 @@ def generate_sell_part(qty, rate):
 
 
 def brain_strategy(price_strat_1, base_qty, benef, mean_price, step):
+    """
+
+    :param price_strat_1:
+    :param base_qty:
+    :param benef:
+    :param mean_price:
+    :param step:
+    :return: 2 series with the part and price partitions which will be used to create sell orders.
+    """
     price_strategy = []
     part_strategy = []
     price_strategy.append(price_strat_1)
@@ -64,12 +73,12 @@ def brain_strategy(price_strat_1, base_qty, benef, mean_price, step):
             price_strategy.append(price_strategy[j] * step)
             part_strategy.append(round(get_part_strat(base_qty, benef, mean_price, price_strategy[j+1]), 0))
             j = j+1
-            print(price_strategy,part_strategy)
+            print("price strategy", "part_strategy", price_strategy, part_strategy)
         if j == 1:
             part_strategy[0] = 100
         else:
             part_strategy[j] = 100 - sum(part_strategy[:j])
-            print(price_strategy, part_strategy)
+            print("price strategy", "part_strategy", "last", price_strategy, part_strategy)
     return price_strategy, part_strategy
 
 
@@ -86,10 +95,12 @@ def generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy):
     sells = []
     for i in range(0, len(price_strategy)):
         dec_part = 8 if (pair not in decs_part) else decs_part[pair]
+        dec_part = math.pow(10, dec_part)
         dec_price = 8 if (pair not in decs_price) else decs_price[pair]
+        dec_price = math.pow(10, dec_price)
         sells.append([pair,
-                      round(generate_sell_price(mean_price, price_strategy[i]), dec_price),
-                      round(generate_sell_part(base_qty, part_strategy[i]), dec_part)
+                      math.floor(generate_sell_price(mean_price, price_strategy[i]) * dec_price) / dec_price,
+                      math.floor(generate_sell_part(base_qty, part_strategy[i]) * dec_part) / dec_part
                       ])
     return sells
 
@@ -124,7 +135,8 @@ def sell_pair(base_c, quote_c, benef, step):
                                                        step=step)
         if price_strategy != 0:
             sells = generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy)
-            print(sells)
+            ################ Il y a bug bizzarre juste en dessous
+            print("Sells :", sells)
             for i in sells:
                 client.create_test_order(symbol=i[0],
                                          side='SELL',
@@ -140,29 +152,31 @@ def sell_pair(base_c, quote_c, benef, step):
 
 if __name__ == '__main__':
     min_balance_value = 0.1
-    step = 1.2
+    step = 1.1
     # get non zero assets and remove NA assets
     my_account = client.get_account()['balances']
     my_account = [asset for asset in my_account if
                   (float(asset['free']) + float(asset['locked']) > 0) &
-                  (asset['asset'] not in ('ETH', 'GAS', 'ETF','NEO'))
+                  (asset['asset'] not in ('ETH', 'GAS', 'ETF'))
                   ]
     for asset in my_account:
         symbol = asset['asset']+'ETH'
         try:
             # setting benef according to total asset value and braining only assets whose value is > min_value
             balance_value = float(client.get_ticker(symbol=symbol)['lastPrice']) * float(asset['free'])
-            benef = 0.1 if balance_value <= 1 else 0.2
+            benef = 0.05 if balance_value <= 1 else 0.2
+            print("\n\rChecking asset", asset['asset'])
             if balance_value >= min_balance_value:
-                print('Braining : ' + asset['asset'])
+                print('Generating ' + asset['asset'] + " sells")
                 sell_pair(asset['asset'], 'ETH', benef, step)
+            else:
+                print('Balance too low for :', asset['asset'])
         except Exception as e:
-            print(asset['asset'], e)
+            print("Exception : ", e)
 
 
-# TODO : annuler tous les ordres d'une paire dès lors qu'il y a eu un achat ou une vente depuis l'open order le plus ancien.
+# TODO : annuler tous les ordres d'une paire dès lors qu'il y a plus de 0,08 de free balance
 # TODO : il faur revoir al maniere dont on caclule le min benef car avec le BAT par exemple la repartition se fait mal.... le dernier part_strat a 34% du solde
-
 
 
 
