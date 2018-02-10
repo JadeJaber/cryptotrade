@@ -73,12 +73,11 @@ def brain_strategy(price_strat_1, base_qty, benef, mean_price, step):
             price_strategy.append(price_strategy[j] * step)
             part_strategy.append(round(get_part_strat(base_qty, benef, mean_price, price_strategy[j+1]), 0))
             j = j+1
-            print("price strategy", "part_strategy", price_strategy, part_strategy)
         if j == 1:
             part_strategy[0] = 100
         else:
             part_strategy[j] = 100 - sum(part_strategy[:j])
-            print("price strategy", "part_strategy", "last", price_strategy, part_strategy)
+            print("price strategy", "part_strategy", price_strategy, part_strategy)
     return price_strategy, part_strategy
 
 
@@ -112,6 +111,9 @@ def get_mean_high_price(pair):
                                                      interval=client.KLINE_INTERVAL_1DAY,
                                                      start_str=start_date,
                                                      end_str=end_date)
+    # historical_kline[4] c'est le close price
+    # historical_kline[2] c'est le high price
+    # OHLCV
     top_prices = [float(historical_kline[2]) for historical_kline in historical_klines]
     return sum(top_prices)/len(top_prices)
 
@@ -135,24 +137,33 @@ def sell_pair(base_c, quote_c, benef, step):
                                                        step=step)
         if price_strategy != 0:
             sells = generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy)
-            ################ Il y a bug bizzarre juste en dessous
+            print("Mean price :", mean_price)
+            print("Current price:", client.get_ticker(symbol=pair)['lastPrice'])
             print("Sells :", sells)
             for i in sells:
                 client.create_test_order(symbol=i[0],
-                                         side='SELL',
-                                         type='LIMIT_MAKER',
-                                         quantity=i[2],
-                                         price=round(i[1], 8)
-                                         )
+                                    side='SELL',
+                                    type='LIMIT',
+                                    timeInForce='GTC',
+                                    quantity=i[2],
+                                    price=round(i[1], 8)
+                                    )
         else:
-            print("No interesting sells to create for pair : ", pair)
+            print("Not enough balance to generate interesting sells for pair ", pair, " with such mean high price: ",
+                  " \n\r - balance: ", base_qty,
+                  " \n\r - calculated percentage diff: ", round(diff_mean_price_vs_mean_high_price, 2), "%",
+                  " \n\r - mean price: ", mean_price,
+                  " \n\r - mean high price: ", mean_high_price,
+                  " \n\r - min benef: ", mean_high_price * base_qty - mean_price * base_qty)
     else:
-        print("Mean high price is lower than mean price for pair : ", pair)
+        print("Mean high price ", mean_high_price, " is lower than mean price ", mean_price, " for pair : ", pair)
 
 
 if __name__ == '__main__':
+    # minimum value of the asset in ETH in order to be checked & sold
     min_balance_value = 0.1
-    step = 1.1
+    # The smaller the step, the less you may gain money but the tighter your sells are gonna be
+    step = 1.05
     # get non zero assets and remove NA assets
     my_account = client.get_account()['balances']
     my_account = [asset for asset in my_account if
@@ -162,21 +173,18 @@ if __name__ == '__main__':
     for asset in my_account:
         symbol = asset['asset']+'ETH'
         try:
-            # setting benef according to total asset value and braining only assets whose value is > min_value
+
             balance_value = float(client.get_ticker(symbol=symbol)['lastPrice']) * float(asset['free'])
-            benef = 0.05 if balance_value <= 1 else 0.2
+            # we may consider more tresholds to define minbenef when I will assets with higher balance_values
+            benef = 0.1 if balance_value <= 1 else 0.2
             print("\n\rChecking asset", asset['asset'])
+            # checking only assets whose value is > min_value
             if balance_value >= min_balance_value:
                 print('Generating ' + asset['asset'] + " sells")
                 sell_pair(asset['asset'], 'ETH', benef, step)
             else:
-                print('Balance too low for :', asset['asset'])
+                print('Balance ', balance_value,  ' too low for :', asset['asset'])
         except Exception as e:
             print("Exception : ", e)
-
-
-# TODO : annuler tous les ordres d'une paire dès lors qu'il y a plus de 0,08 de free balance
-# TODO : il faur revoir al maniere dont on caclule le min benef car avec le BAT par exemple la repartition se fait mal.... le dernier part_strat a 34% du solde
-
 
 
