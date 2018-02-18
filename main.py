@@ -39,7 +39,7 @@ def get_mean_price(pair):
     total_prices_w_commissions = df.loc[df['isBuyer']]['total_price'].sum() - \
         df.loc[df['isBuyer'] == False]['total_price'].sum() \
         - df.loc[df['isBuyer'] == False]['commission'].sum()
-    # return mean_price
+    # return my_mean_price
     return 0 if (total_prices_w_commissions < 0.1) else (total_prices_w_commissions / remaining_qty)
 
 
@@ -92,16 +92,22 @@ def generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy):
     :return:
     """
     sells = []
+    sell_value = 0
     for i in range(0, len(price_strategy)):
         dec_part = 8 if (pair not in decs_part) else decs_part[pair]
         dec_part = math.pow(10, dec_part)
         dec_price = 8 if (pair not in decs_price) else decs_price[pair]
         dec_price = math.pow(10, dec_price)
+        sell_price=math.floor(generate_sell_price(mean_price, price_strategy[i]) * dec_price) / dec_price
+        sell_qty=math.floor(generate_sell_part(base_qty, part_strategy[i]) * dec_part) / dec_part
         sells.append([pair,
-                      math.floor(generate_sell_price(mean_price, price_strategy[i]) * dec_price) / dec_price,
-                      math.floor(generate_sell_part(base_qty, part_strategy[i]) * dec_part) / dec_part
+                      sell_price,
+                      sell_qty
                       ])
-    return sells
+        sell_value=sell_value + (sell_price * sell_qty)
+    buy_value = base_qty * mean_price
+    benef = sell_value - buy_value
+    return (sells, buy_value, benef)
 
 
 def get_mean_high_price(pair):
@@ -118,12 +124,12 @@ def get_mean_high_price(pair):
     return sum(top_prices)/len(top_prices)
 
 
-def get_part_strat(base_qty, benef, mean_price, price_strat):
+def get_part_strat(base_qty, min_benef, mean_price, price_strat):
     sell_price = mean_price + (mean_price * price_strat / 100)
-    return round(benef / (sell_price - mean_price) * 100 / base_qty, 0)
+    return round(min_benef / (sell_price - mean_price) * 100 / base_qty, 0)
 
 
-def sell_pair(base_c, quote_c, benef, step):
+def sell_pair(base_c, quote_c, min_benef, step):
     pair = base_c + quote_c
     base_qty = float(client.get_asset_balance(base_c)['free'])
     mean_price = get_mean_price(pair)
@@ -132,21 +138,23 @@ def sell_pair(base_c, quote_c, benef, step):
         diff_mean_price_vs_mean_high_price = (mean_high_price - mean_price)/mean_price * 100
         price_strategy, part_strategy = brain_strategy(price_strat_1=diff_mean_price_vs_mean_high_price,
                                                        base_qty=base_qty,
-                                                       benef=benef,
+                                                       benef=min_benef,
                                                        mean_price=mean_price,
                                                        step=step)
         if price_strategy != 0:
-            sells = generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy)
+            sells, buy_value, benef = generate_sells(base_qty, pair, mean_price, price_strategy, part_strategy)
             print("Mean price :", mean_price)
             print("Current price:", client.get_ticker(symbol=pair)['lastPrice'])
             print("Sells :", sells)
+            print("Buy value : ", buy_value)
+            print("Benef :", benef)
             for i in sells:
                 client.create_test_order(symbol=i[0],
                                     side='SELL',
                                     type='LIMIT',
                                     timeInForce='GTC',
                                     quantity=i[2],
-                                    price=round(i[1], 8)
+                                   price=round(i[1], 8)
                                     )
         else:
             print("Not enough balance to generate interesting sells for pair ", pair, " with such mean high price: ",
@@ -176,12 +184,12 @@ if __name__ == '__main__':
 
             balance_value = float(client.get_ticker(symbol=symbol)['lastPrice']) * float(asset['free'])
             # we may consider more tresholds to define minbenef when I will assets with higher balance_values
-            benef = 0.1 if balance_value <= 1 else 0.2
+            min_benef = 0.05 if balance_value <= 1 else 0.2
             print("\n\rChecking asset", asset['asset'])
             # checking only assets whose value is > min_value
             if balance_value >= min_balance_value:
                 print('Generating ' + asset['asset'] + " sells")
-                sell_pair(asset['asset'], 'ETH', benef, step)
+                sell_pair(asset['asset'], 'ETH', min_benef, step)
             else:
                 print('Balance ', balance_value,  ' too low for :', asset['asset'])
         except Exception as e:
