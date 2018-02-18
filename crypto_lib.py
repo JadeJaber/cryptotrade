@@ -36,7 +36,7 @@ class PublicBinance:
         products = self.get_base_assets(quote_c)
         sorted_products = []
         for product in products:
-            pair = Pair(self.client, product, quote_c, start_date="2 weeks ago UTC")
+            pair = Pair(self.client, product, quote_c)
             diff = (pair.last_price - pair.mean_high_price) * 100 / pair.mean_high_price
             sorted_products.append({"base_c": pair.base_c, "mean_high_price": pair.mean_high_price, "last_price": pair.last_price, "diff": diff})
         sorted_products_df = pd.DataFrame(sorted_products)
@@ -51,12 +51,11 @@ class Account:
                          (asset['asset'] not in ('ETH', 'GAS', 'ETF'))]
 
 
-
-# TODO : mettre les decs_price et decs_part dans un fichier de config.
+# TODO : mettre les decs_price et decs_part dans un fichier de config. ou les recuperer via client.get_exchange_info()
 class Pair:
 
     def __init__(self, client, base_c, quote_c="ETH", step="1,05", start_date="1 month ago UTC"):
-        self.decs_part = {'NEOETH': 2, 'BATETH': 0, 'VENETH': 0}
+        self.decs_part = {'NEOETH': 2, 'BATETH': 0, 'VENETH': 0, 'SNGLSETH': 0}
         self.decs_price = {'NEOETH': 6}
         self.client = client
         self.base_c = base_c
@@ -68,8 +67,7 @@ class Pair:
         self.mean_high_price = self.get_mean_high_price(start_date)
         self.last_price = float(client.get_ticker(symbol=self.pair)['lastPrice'])
         self.my_balance_value = self.last_price * float(self.my_base_qty)
-        self.min_benef = 0.05 if self.my_balance_value <= 1 else 0.2
-
+        self.min_benef = 0.05 if self.my_balance_value <= 1 else 0.1
 
     def get_mean_price(self):
         """
@@ -143,7 +141,7 @@ class Pair:
         # historical_kline[4] c'est le close price
         # historical_kline[2] c'est le high price
         # OHLCV
-        top_prices = [float(historical_kline[2]) for historical_kline in historical_klines]
+        top_prices = [float(historical_kline[4]) for historical_kline in historical_klines]
         return sum(top_prices)/len(top_prices)
 
     def generate_sells(self, price_strategy, part_strategy):
