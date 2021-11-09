@@ -1,2 +1,2 @@
 # cryptotrade
-TODO
+TODO GO
