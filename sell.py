@@ -1,3 +1,4 @@
+# jade
 import crypto_lib as cl
 
 # minimum value of the asset in ETH in order to be checked & sold
